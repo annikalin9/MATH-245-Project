@@ -1,0 +1,62 @@
+---
+title: "Project Asteroid"
+author: "Annika Lin"
+date: "2023-02-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+nasa <- read.csv("~/Documents/Georgetown/Spring 23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa.csv")
+```
+
+```{r}
+summary(nasa)
+
+head(nasa)
+```
+
+```{r, echo=FALSE}
+colnames(nasa)
+```
+
+```{r}
+df_uniq <- unique(nasa$Neo.Reference.ID)
+length(df_uniq)  #3692 already dropped NAs
+
+```
+
+```{r}
+mydata <- nasa
+df <-nasa
+
+str(mydata)
+```
+
+```{r}
+summary(nasa$Est.Dia.in.Miles.max.)
+```
+
+
+```{r}
+IQR(nasa$Est.Dia.in.Miles.max.)
+sd(nasa$Est.Dia.in.Miles.max.)
+```
+The distribution of dimaeter is unimodal and skewed right, with a median of 0.153954 miles and a standard deviation of 0.5134956. There are many outliers.
+
+```{r}
+hist(nasa$Est.Dia.in.Miles.max., freq=F, xlab="income", main = "Histogram of Diameter")
+lines(density(nasa$Est.Dia.in.Miles.max.), col="red")
+
+```
+
+```{r}
+boxplot(nasa$Est.Dia.in.Miles.max.)
+```
+
+```{r}
+
+```
