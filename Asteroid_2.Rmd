@@ -1,0 +1,254 @@
+---
+title: "Preliminary Report"
+author: "Annika Lin, Hannah Norman, & Maddie Pfister"
+date: "10 February 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Description of Data
+
+Our dataset is composed of quantitative metrics that NASA collects on asteroids. The original dataset contains 40 variables and 4687 observations across 3692 asteroids (i.e., 995 of the observations are on previously observed asteroids). It's worth noting that some of the variables denote the same measurement values but in different units. After getting rid of such columns as well as those for sample identifiers, variables lacking variability, and variables missing many values, we end up with 20 usable candidate predictors (see Appendix A for proposed list). Furthermore, we see the potential to add additional predictors, such as a quantitative Estimated Diameter Range variable that summarizes the range between the Estimated Min Diameter and Estimated Max Diameter variables.
+
+From our preliminary data analysis, we believe that the data contains many small asteroids and a few large asteroids. An informal, supplemental numerical/graphical analysis of the candidate predictor for Estimated Max Diameter suggests the presence of extreme outliers (see Appendix B). We intend to remove these observations from our data so as to avoid any undue skewing within our future analyses.
+
+The data contains a boolean variable for *whether an asteroid is considered hazardous*. This is our proposed response variable.
+
+## Source of Data
+
+We found this dataset through Kaggle [[link](https://www.kaggle.com/datasets/shrutimehta/nasa-asteroids-classification)]. The data is originally from the NASA JPL Asteroid team, and it was obtained through NeoWs [[link](https://www.neowsapp.com/swagger-ui/index.html#/)] (Near Earth Object Web Service), which is a RESTful API.
+
+## Question of Interest
+
+*Which attributes are the best predictors as to whether an asteroid is hazardous or not?*	
+
+## Numerical Summary of Response Variable 
+
+```{r}
+nasa <- read.csv("~/Documents/Georgetown/Spring 23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa.csv")
+```
+
+```{r data prep}
+OrbitDetDateFiltered <- as.Date(nasa$Orbit.Determination.Date)
+
+length(OrbitDetDateFiltered[OrbitDetDateFiltered=="2017-04-06"])
+
+library(dplyr)
+
+df <- nasa
+df$Orbit.Determination.Date <- as.Date(df$Orbit.Determination.Date)
+
+df <- df %>% filter(Orbit.Determination.Date == '2017-04-06')
+df
+
+df1 <- df[!duplicated(df$Name),] #Name of Asteroid
+df1
+
+df2 <- df1[!duplicated(df1$Neo.Reference.ID),] #Each asteroid has its own reference ID
+df2 #same df2 as df1
+```
+
+```{r keep one pair of diameter min/max columns}
+drops <- c("Est.Dia.in.M.min." ,
+           "Est.Dia.in.M.max."      ,      "Est.Dia.in.KM.min."  ,      "Est.Dia.in.KM.max."  ,
+           "Est.Dia.in.Feet.min."       ,  "Est.Dia.in.Feet.max." , "Miss.Dist..Astronomical.", "Miss.Dist..lunar."           ,   "Miss.Dist..miles.")
+df1 <- df1[ , !(names(df1) %in% drops)]
+
+colnames(df1)
+
+nasa <-df1
+```
+
+
+```{r}
+prop.hazardous <- prop.table(table(nasa$Hazardous))
+prop.hazardous
+```
+
+\
+
+About 14.12% of asteroid observations were categorized as hazardous, whereas 85.9% were categorized as non-hazardous.
+
+## Graphical Summaries of Response Variable
+
+
+
+```{r}
+barplot(prop.hazardous, xlab="Hazardous", ylab="Proportion", ylim=c(0, 1.0),
+        col=c("salmon", "palegreen"))
+```
+
+```{r}
+count.hazardous <- table(nasa$Hazardous)
+lbls <- paste(levels(as.factor(nasa$Hazardous)), ": ", 
+              round(prop.hazardous,3)*100, "%", sep="")
+pie(count.hazardous, labels=lbls, col=c("salmon", "palegreen"))
+```
+
+
+
+# Appendix B
+
+Numerical and graphical summaries of Estimated Max Diameter variable illustrating the presence of extreme outliers that risk skewing future analyses if not removed.
+
+\
+
+```{r}
+summary(nasa$Est.Dia.in.Miles.max.)
+boxplot(nasa$Est.Dia.in.Miles.max.)
+```
+
+
+Evaluate the variance of each quantitative variable in the nasa data
+
+```{r}
+mydata <- nasa
+sort(sapply(mydata, var))
+
+```
+
+
+The variance of each quantitative variable in the data ranges from 0 (Est.Dia.in.Miles.min. ) to 3.991480e+22  (Epoch.Date.Close.Approach ). 
+Other continuous variables with high variance include Relative.Velocity.km.per.hr, Perihelion.Time , and Epoch.Osculation.
+
+
+
+(b) Conduct a principal component analysis (PCA) of the data in R and provide a scree plot showing the proportion of variance explained by each principal component. Note that the variable Class should not be included in the PCA.
+
+
+```{r}
+drop <- c("Hazardous", "Name", "Neo.Reference.ID", "Relative.Velocity.km.per.hr") #, "Orbit.ID"??
+x = mydata[,!(names(mydata) %in% drop)]
+
+nasa4pca <- x[ , purrr::map_lgl(x, is.numeric)]
+
+nasa4pca.pca <- prcomp(nasa4pca, scale = TRUE)
+summary(nasa4pca.pca)
+
+pr.var = nasa4pca.pca$sdev^2
+pve=pr.var/sum(pr.var)
+plot(pve, type="b", pch=19, xlab="Principal Component",
+ylab="Proportion of variance explained",
+main="Scree plot", ylim=c(0,1))
+```
+We see that the scree plot bends more around 3 principal components.
+
+```{r}
+cumsum(pve)
+```
+
+First three PC's account for about 59% of the variability in the data.
+We need 7 components to account for 80% of the variability and 10 components for 90% of the variability in the data.
+
+```{r}
+#obtain loadings
+nasa4pca.pca$rotation[,1:2]
+```
+
+```{r}
+library(factoextra)
+biplot (nasa4pca.pca , scale = T, cex=0.5, xlab="First PC", ylab="Second PC")
+
+lam <- nasa4pca.pca$sdev[1:2]*sqrt(nrow(nasa4pca)-1)
+sc.scores <-t(t(nasa4pca.pca$x[, 1:2])/lam) # head(sc.scores)
+sc.rotation <- t(t(nasa4pca.pca$rotation[,1:2])*lam)
+```
+```{r}
+sc.rotation
+```
+
+
+Variables that have the strongest correlation with PC1: 
+
+Absolute.Magnitude, Jupiter.Tisserand.Invariant, Semi.Major.Axis , Orbital.Period , Aphelion.Dist , and Mean.Motion.
+
+Variables that have the strongest correlation with PC2:
+
+Est.Dia.in.Miles.min. and Est.Dia.in.Miles.max. , Relative.Velocity.km.per.sec
+
+(f) Using the R package factoextra, extract and visualize the contributions of each variable to each of the first two PCs. Which variables contribute more than expected (under the assumption that all variables contribute equally) to each of the first and second PCs.
+
+```{r}
+# Contributions of variables to PC1
+fviz_contrib(nasa4pca.pca, choice = "var", axes = 1, top = 9)
+
+# Contributions of variables to PC2
+fviz_contrib(nasa4pca.pca, choice = "var", axes = 2, top = 9)
+```
+
+
+If every variable contributed equally at around 4.5%, we'd expect that:
+Absolute.Magnitude, Semi.Major.Axis , Jupiter.Tisserand.Invariant, , Orbital.Period , Mean.Motion, Eccentricity, Absolute Magnitude, Est Dia in Miles min and max contribute more than expected to the first PC.
+
+If every variable contributed equally at around 4.5%, we'd expect that:
+Orbit Uncertainty, Est Dia in Miles min and max, Absolute Magnitude, Perhilion Distance, RElative Velocity km per sec, MIss Dist km and Orbit ID contribute more than expected to the second PC.
+
+
+
+```{r}
+fviz_pca_ind(nasa4pca.pca,
+            label="none", # hide individual labels
+            habillage = mydata$Hazardous, # color by groups
+            addEllipses = TRUE, # Concentration ellipses
+            legend.title = "Hazardous" )
+```
+
+First two PCs do not separate the asteroids well.
+
+
+
+\newpage
+
+# Appendix A
+
+List of proposed candidate predictors, excluding asteroid IDs, non-varying variables, and variables missing many values. We have yet to decide on units of measurement for those variables marked with an asterisk (\*).
+
+\
+
+1.  Absolute Magnitude
+
+2.  Estimated Diameter (min)\*
+
+3.  Estimated Diameter (max)\*
+
+4.  Relative Velocity\*
+
+5.  Miss Distance\*
+
+6.  Orbit ID
+
+7.  Orbit Uncertainty
+
+8.  Minimum Orbit Intersection
+
+9.  Jupiter Tisserand Invariant
+
+10. Eccentricity
+
+11. Semi Major Axis
+
+12. Inclination
+
+13. Ascending Node Longitude
+
+14. Orbital Period
+
+15. Perihelion Distance
+
+16. Perihelion Argument
+
+17. Aphelion Distance
+
+18. Perihelion Time
+
+19. Mean Anomaly
+
+20. Mean Motion
+
+\newpage
+```{r}
+
+```
