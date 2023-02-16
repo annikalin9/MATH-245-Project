@@ -42,24 +42,26 @@ df <- nasa
 df$Orbit.Determination.Date <- as.Date(df$Orbit.Determination.Date)
 
 df <- df %>% filter(Orbit.Determination.Date == '2017-04-06')
-df
+# df
 
 df1 <- df[!duplicated(df$Name),] #Name of Asteroid
-df1
+# df1
 
 df2 <- df1[!duplicated(df1$Neo.Reference.ID),] #Each asteroid has its own reference ID
-df2 #same df2 as df1
+# df2 #same df2 as df1
 ```
 
 ```{r keep one pair of diameter min/max columns}
 drops <- c("Est.Dia.in.M.min." ,
-           "Est.Dia.in.M.max."      ,      "Est.Dia.in.KM.min."  ,      "Est.Dia.in.KM.max."  ,
-           "Est.Dia.in.Feet.min."       ,  "Est.Dia.in.Feet.max." , "Miss.Dist..Astronomical.", "Miss.Dist..lunar."           ,   "Miss.Dist..miles.")
+           "Est.Dia.in.M.max."      ,      "Est.Dia.in.Miles.min."   ,      "Est.Dia.in.Miles.max."  ,
+           "Est.Dia.in.Feet.min."       ,  "Est.Dia.in.Feet.max." , "Miss.Dist..Astronomical.", "Miss.Dist..lunar."           ,   "Miss.Dist..miles.", "Orbit.Determination.Date", "Hazardous", "Name", "Neo.Reference.ID", "Relative.Velocity.km.per.hr", "Orbiting.Body")
 df1 <- df1[ , !(names(df1) %in% drops)]
 
 colnames(df1)
 
 nasa <-df1
+
+# write.csv(df1, "~/Documents/Georgetown/Spring 23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa_cleaned.csv")
 ```
 
 
@@ -107,7 +109,7 @@ Evaluate the variance of each quantitative variable in the nasa data
 ```{r}
 mydata <- nasa
 sort(sapply(mydata, var))
-
+summary(mydata)
 ```
 
 
@@ -120,7 +122,7 @@ Other continuous variables with high variance include Relative.Velocity.km.per.h
 
 
 ```{r}
-drop <- c("Hazardous", "Name", "Neo.Reference.ID", "Relative.Velocity.km.per.hr") #, "Orbit.ID"??
+# drop <- c("Hazardous", "Name", "Neo.Reference.ID", "Relative.Velocity.km.per.hr") #, "Orbit.ID"??
 x = mydata[,!(names(mydata) %in% drop)]
 
 nasa4pca <- x[ , purrr::map_lgl(x, is.numeric)]
