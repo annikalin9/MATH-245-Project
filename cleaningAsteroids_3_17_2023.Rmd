@@ -1,0 +1,81 @@
+---
+title: "Preliminary Report"
+author: "Annika Lin, Hannah Norman, & Maddie Pfister"
+date: "10 February 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+nasa <- read.csv("~/Documents/Georgetown/Spring23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa.csv")
+```
+
+```{r data prep}
+OrbitDetDateFiltered <- as.Date(nasa$Orbit.Determination.Date)
+
+length(OrbitDetDateFiltered[OrbitDetDateFiltered=="2017-04-06"])
+
+library(dplyr)
+
+#filter for Date 2017-04-06
+df <- nasa
+df$Orbit.Determination.Date <- as.Date(df$Orbit.Determination.Date)
+
+df <- df %>% filter(Orbit.Determination.Date == '2017-04-06')
+# df
+
+df1 <- df[!duplicated(df$Name),] #Name of Asteroid
+# df1
+
+df2 <- df1[!duplicated(df1$Neo.Reference.ID),] #Each asteroid has its own reference ID
+# df2 #same df2 as df1
+```
+
+```{r keep one pair of diameter min/max columns}
+drops <- c("Est.Dia.in.KM.min." ,
+           "Est.Dia.in.KM.max."      ,      "Est.Dia.in.Miles.min."   ,      "Est.Dia.in.Miles.max."  ,
+           "Est.Dia.in.Feet.min."       ,  "Est.Dia.in.Feet.max." , "Miss.Dist..Astronomical.", "Miss.Dist..lunar."           ,   "Miss.Dist..miles.", "Orbit.Determination.Date",  "Name", "Neo.Reference.ID", "Relative.Velocity.km.per.hr", "Orbiting.Body",  "Name", "Neo.Reference.ID", "Relative.Velocity.km.per.hr",  "Epoch.Date.Close.Approach", "Miles.per.hour" , "Orbit.ID" , "Epoch.Osculation", "Equinox", "Orbit.Uncertainty")
+
+df1 <- df1[ , !(names(df1) %in% drops)] #contains Hazardous
+
+colnames(df1)
+
+drops <- c("Hazardous")
+
+nasa <- df1[ , !(names(df1) %in% drops)]
+
+nasa <-df1
+
+#create range column
+nasa["Range.Dia.in.M"] <- (nasa$Est.Dia.in.M.max - nasa$Est.Dia.in.M.min)
+
+#convert Close.Approach.Date to continuous by removing dashes
+nasa$Close.Approach.Date <- as.numeric(gsub("-", "", nasa$Close.Approach.Date )
+)
+
+
+colnames(nasa)
+# write.csv(df1, "~/Documents/Georgetown/Spring23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa3_cleaned.csv")
+```
+```{r}
+# drops <- c("Absolute.Magnitude")
+# df2 <- df1[ , !(names(df1) %in% drops)]
+# df2 <- na.omit(df1)
+# 
+# col_names <- colnames(df2)
+# 
+# for (i in col_names){
+#     plot(as.factor(Hazardous) ~ i, data=df2)
+# }
+```
+
+
+
+
+```{r}
+str(nasa)
+```
