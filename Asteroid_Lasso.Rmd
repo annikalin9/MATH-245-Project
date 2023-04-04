@@ -1,0 +1,54 @@
+---
+title: "Asteroid 4"
+author: "Annika Lin"
+date: "2023-04-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+df <- read.csv("~/Documents/Georgetown/Spring23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa_4_4_23.csv")
+df <- df[ , !(names(df) %in% c("X"))]
+```
+
+```{r}
+library(glmnet)
+
+
+# we use the function model.matrix to create the design matrix
+X = model.matrix(Hazardous ~ ., data=df)
+Y = as.numeric(df$Hazardous=="True")
+
+# cv.glmnet is the main function to do cross-validation.
+# Here we use "class", the misclassification error, as criterion.
+# Other options include "deviance" (the default) and "auc""
+set.seed(1)
+cvfit = cv.glmnet(x=X[,-1], y=Y, family="multinomial", type.measure="class")
+plot(cvfit)
+```
+```{r}
+coef(cvfit, s=cvfit$lambda.1se)
+```
+
+```{r}
+#using the first matrix from cvfit$lamda.1se
+sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)$'0'!=0)[-1]-1
+sel.names <- colnames(df)[sel.vars]
+sel.names
+```
+
+
+```{r}
+
+#confused about error: variable lengths differ (found for 'Absolute.Magnitude')
+df$Y = as.numeric(df$Hazardous=="True")
+
+fit.lasso <- glm(as.formula(paste(df$Y, 
+                paste(sel.names, collapse = "+"),sep=" ~ ")),
+                 family="binomial", data=df)
+summary(fit.lasso)
+```
+
