@@ -26,16 +26,16 @@ Y = as.numeric(df$Hazardous=="True")
 # Here we use "class", the misclassification error, as criterion.
 # Other options include "deviance" (the default) and "auc""
 set.seed(1)
-cvfit = cv.glmnet(x=X[,-1], y=Y, family="multinomial", type.measure="class")
+cvfit = cv.glmnet(x=X[,-1], y=Y, family="binomial", type.measure="class")
 plot(cvfit)
 ```
+
 ```{r}
 coef(cvfit, s=cvfit$lambda.1se)
 ```
 
 ```{r}
-#using the first matrix from cvfit$lamda.1se
-sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)$'0'!=0)[-1]-1
+sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)!=0)[-1]-1
 sel.names <- colnames(df)[sel.vars]
 sel.names
 ```
@@ -43,10 +43,9 @@ sel.names
 
 ```{r}
 
-#confused about error: variable lengths differ (found for 'Absolute.Magnitude')
-df$Y = as.numeric(df$Hazardous=="True")
+#confused error:variable lengths differ (found for 'Absolute.Magnitude')
 
-fit.lasso <- glm(as.formula(paste(df$Y, 
+fit.lasso <- glm(as.formula(paste(df$Hazardous=="True", 
                 paste(sel.names, collapse = "+"),sep=" ~ ")),
                  family="binomial", data=df)
 summary(fit.lasso)
