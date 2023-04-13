@@ -1,0 +1,112 @@
+---
+title: "Asteroid_K-means_and_Decision_Trees"
+author: "Annika Lin"
+date: "2023-04-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+df <- read.csv("~/Documents/Georgetown/Spring23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa_4_4_23.csv")
+df <- df[ , !(names(df) %in% c("X"))]
+```
+
+
+## KNN 
+```{r}
+
+library(caret)
+df1 <- df
+df1$Hazardous <- as.numeric(df1$Hazardous=="True")
+
+set.seed(1)
+nasa.knn <- train(Hazardous ~ .,
+method = "knn",
+tuneGrid = expand.grid(k = 1:22),
+trControl = trainControl(method="cv", number=10,
+savePredictions = TRUE),
+preProcess = c("center", "scale"),
+metric = "RMSE",
+data = df1)
+nasa.knn
+```
+
+
+```{r}
+plot(nasa.knn$results[,1:2], type="l")
+```
+
+
+Let us compare the results with fitting a logistic regression model using 10-fold CV
+```{r}
+
+#UPDATE : variables selected previously with LASSO
+
+set.seed(1)
+  fit.nasa <- train(as.factor(Hazardous) ~ Absolute.Magnitude+Est.Dia.in.KM.min.+Orbit.Uncertainity+Minimum.Orbit.Intersection+Inclination+Mean.Motion+Range.Dia.in.KM,
+  method="glm", family="binomial",
+  trControl = trainControl(method="cv", number=10,
+  savePredictions = TRUE,
+  classProbs = TRUE),
+  metric = "Accuracy",
+  data=df)
+fit.nasa
+```
+
+Comparing KNN and Logistic model
+```{r}
+
+varImp(nasa.knn)
+varImp(fit.nasa)
+
+plot(varImp(nasa.knn), main="kNN variable importance")
+
+plot(varImp(fit.nasa), main="Logistic model")
+```
+
+
+
+# Decision Tree
+
+```{r}
+df <- read.csv("~/Documents/Georgetown/Spring23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa_4_4_23.csv")
+df <- df[ , !(names(df) %in% c("X"))]
+```
+
+```{r}
+library(rpart)
+
+```
+
+```{r}
+set.seed(1)
+df.CVrpart <- train(Hazardous ~ ., data=df,
+method="rpart",
+tuneGrid = expand.grid(cp = seq(0.005, 0.05, length=10)),
+trControl = trainControl(method = "cv", number=10,
+savePredictions = TRUE,
+selectionFunction = "oneSE") )
+df.CVrpart
+```
+
+```{r}
+print(df.CVrpart$finalModel)
+```
+
+```{r}
+library(rattle)
+fancyRpartPlot(df.CVrpart$finalModel)
+```
+```{r}
+varImp(df.CVrpart)
+```
+
+Note Absolute Magnitude and Est.Dia and two other variables have the variable importance.
+
+```{r}
+head(df.CVrpart$pred)
+```
+
