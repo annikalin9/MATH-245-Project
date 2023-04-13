@@ -1,0 +1,79 @@
+---
+title: "Asteroid 4"
+author: "Annika Lin"
+date: "2023-04-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+df <- read.csv("~/Documents/Georgetown/Spring23/Statistical Learning & Data Science/Project/NASA-asteroid-Classification-master/nasa_4_4_23.csv")
+df <- df[ , !(names(df) %in% c("X"))]
+```
+
+
+#Lasso
+```{r}
+library(glmnet)
+
+
+# we use the function model.matrix to create the design matrix
+X = model.matrix(Hazardous ~ ., data=df)
+Y = as.numeric(df$Hazardous=="True")
+
+# cv.glmnet is the main function to do cross-validation.
+# Here we use "class", the misclassification error, as criterion.
+# Other options include "deviance" (the default) and "auc""
+set.seed(1)
+cvfit = cv.glmnet(x=X[,-1], y=Y, family="binomial", type.measure="class")
+plot(cvfit)
+```
+
+```{r}
+coef(cvfit, s=cvfit$lambda.1se)
+```
+
+```{r}
+sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)!=0)[-1]-1
+sel.names <- colnames(df)[sel.vars]
+sel.names
+```
+
+## Logistic Regression
+```{r}
+df$Hazardous <- df$Hazardous=="True"
+
+fit.lasso <- glm(df$Hazardous ~ Absolute.Magnitude+Est.Dia.in.KM.min.+Orbit.Uncertainity+Minimum.Orbit.Intersection+Inclination+Mean.Motion+Range.Dia.in.KM,
+                 family="binomial", data=df)
+summary(fit.lasso)
+```
+
+
+## Signficiant variables (0.001 level)
+
+Absolute.Magnitude+Est.Dia.in.KM.min.+Orbit.Uncertainity+Minimum.Orbit.Intersection++Range.Dia.in.KM
+
+#PCR
+```{r}
+library(pls)
+ set.seed(1)
+pcr.fit <- pcr(Hazardous ~ ., scale=T, validation="CV", segments=10,
+               data=df)
+summary(pcr.fit)
+validationplot(pcr.fit, val.type="MSEP")
+```
+
+```{r}
+pca.nasa <- prcomp(df[,1:20], scale=T)
+summary(pca.nasa)
+
+pc.dat <- data.frame(pca.nasa$x[,1:4], df$Hazardous)
+pc.logit <- glm(df.Hazardous ~ PC1+PC2+PC3+PC4,
+                family="binomial", data=pc.dat)
+summary(pc.logit)
+```
+
+PCs not significant since p value is large.
