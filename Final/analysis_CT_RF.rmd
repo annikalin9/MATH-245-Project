@@ -1,0 +1,244 @@
+---
+title: "Analysis: Classification Trees & Random Forest"
+author: "Hannah Norman"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(mlbench)
+library(rattle) 
+library(randomForest)
+library(ROCR)
+```
+
+
+## Original NASA Asteroids Data Set
+
+```{r}
+nasa_orig <- read.csv("nasa_original.csv")
+# nasa_orig
+```
+
+## Cleaned NASA Asteroids Data Set
+
+```{r}
+nasa <- read.csv("nasa.csv")
+# nasa
+```
+
+## Numerical and Graphical Summaries of Response Variable
+
+```{r}
+prop.hazardous <- prop.table(table(nasa$Hazardous))
+prop.hazardous
+```
+
+```{r}
+par(mfrow=c(1,2))
+
+# pie chart
+count.hazardous <- table(nasa$Hazardous)
+lbls <- paste(levels(as.factor(nasa$Hazardous)), ": ",
+              round(prop.hazardous,3)*100, "%", sep="")
+pie(count.hazardous, labels=lbls, col=c("salmon", "palegreen"))
+
+# bar plot
+barplot(prop.hazardous, xlab="Hazardous", ylab="Proportion", ylim=c(0, 1.0),
+        col=c("salmon", "palegreen"))
+```
+
+## Analyses of Predictors 
+
+(in search of outliers that might skew analysis)
+
+```{r}
+# numerical summary + box plots
+summary(nasa)
+par(mfrow=c(2,4))
+boxplot(nasa$Est.Dia.in.KM.range, main="Est.Dia.in.KM.range")
+boxplot(nasa$Relative.Velocity, main="Relative.Velocity")
+boxplot(nasa$Minimum.Orbit.Intersection, main="Minimum.Orbit.Intersection")
+boxplot(nasa$Inclination, main="Inclination")
+boxplot(nasa$Orbital.Period, main="Orbital.Period")
+boxplot(nasa$Aphelion.Dist, main="Aphelion.Dist")
+boxplot(nasa$Mean.Motion, main="Mean.Motion")
+
+# to find row number of outlier observations
+nasa[which.max(nasa$Est.Dia.in.KM.range),]
+```
+
+## Predictive Performance Stats
+
+```{r}
+get_stats <- function(CM) {
+  TP <- CM[2,2]
+  FP <- CM[1,2]
+  TN <- CM[1,1]
+  FN <- CM[2,1]
+  
+  acc <- (TP+TN) / (TP+TN+FN+FP)
+  err <- (FP+FN) / (TP+TN+FN+FP)
+  pre <- (TP) / (TP+FP)
+  sen <- (TP) / (TP+FN)
+  spe <- (TN) / (TN+FP)
+  fme <- (2*pre*sen) / (pre+sen)
+  mcc_denom <- sqrt(TP+FP)*sqrt(TP+FN)*sqrt(TN+FP)*sqrt(TN+FN)
+  mcc <- (TP*TN - FP*FN) / mcc_denom
+  
+  name <- c("accuracy", "error rate", "precision", "sensitivity", "specificity", "F-measure", "Matthew's CC")
+  value <- c(acc, err, pre, sen, spe, fme, mcc)
+  stats <- data.frame(name, value)
+  
+  return (stats)
+}
+```
+
+
+## Classification Tree Analysis
+
+1. Make sure that the model assumptions, if any, are satisfied.
+
+No model assumptions of decision trees to be satisfied? We are fitting a classification tree as opposed to a regression tree because the response variable is categorical and binary.
+
+2. Assess the model fit and perform diagnostics, if appropriate.
+
+Both methods appear to give identical results. Note the identical accuracy and kappa ratings across all cp tuning parameters in the plain rpart method...
+
+```{r}
+set.seed(1)
+
+# rpart
+nasa.CVrpart <- train(Hazardous ~ ., data=nasa,
+                      method="rpart",
+                      tuneGrid = expand.grid(cp=seq(0.005, 0.05, length=10)),
+                      trControl=trainControl(method="cv", number=10,
+                                             savePredictions=TRUE,
+                                             classProbs=TRUE,
+                                             selectionFunction = "oneSE"))
+nasa.CVrpart
+
+# print tree
+fancyRpartPlot(nasa.CVrpart$finalModel)
+```
+
+```{r}
+set.seed(1)
+
+# rpart1SE
+nasa.CVrpart1SE <- train(Hazardous ~ ., data=nasa,
+                         method="rpart1SE",
+                         trControl=trainControl(method="cv", number=10,
+                                                savePredictions=TRUE))
+nasa.CVrpart1SE
+
+# print tree
+fancyRpartPlot(nasa.CVrpart1SE$finalModel)
+```
+
+3. Identify tuning parameters to be used, if appropriate.
+
+If the plain rpart method is utilized, it selects a cp (complexity parameter) value of 0.05 to maximize accuracy for the final model. Note that the accuracy and kappa values are identical for each of the cp values tried by the model, so any choice within that range should produce comparable results.
+
+4. Identify and interpret the effect of selected variables.
+
+```{r}
+# variable importance (rpart)
+varImp(nasa.CVrpart)
+plot(varImp(nasa.CVrpart))
+
+# variable importance (rpart1SE)
+varImp(nasa.CVrpart1SE)
+plot(varImp(nasa.CVrpart1SE))
+```
+
+5. Evaluate the cross-validated (CV) predictive performance.
+
+```{r}
+head(nasa.CVrpart$pred)
+```
+
+```{r}
+pihatcv.rpart <- nasa.CVrpart$pred[nasa.CVrpart$pred$cp == 0.05,]
+predcv.rpart <- prediction(pihatcv.rpart$True, pihatcv.rpart$obs)
+perfcv.rpart <- performance(predcv.rpart, "tpr", "fpr")
+plot(perfcv.rpart)
+abline(a=0, b=1, lty=2)
+
+aucCV.rpart <- performance(predcv.rpart, "auc")@y.values 
+aucCV.rpart
+```
+
+```{r}
+confMat <- table(pihatcv.rpart$obs, pihatcv.rpart$pred)
+confMat
+rpart.stats <- get_stats(confMat)
+rpart.stats
+```
+
+## Random Forest Analysis
+
+1. Make sure that the model assumptions, if any, are satisfied.
+
+No model assumptions of random forest to be satisfied?
+
+2. Assess the model fit and perform diagnostics, if appropriate.
+
+Both methods appear to give identical results. Note the identical accuracy and kappa ratings across all cp tuning parameters in the plain rpart method...
+
+```{r}
+set.seed(1)
+
+nasa.rf <- randomForest(as.factor(Hazardous) ~ ., data=nasa)
+nasa.rf
+```
+
+```{r}
+set.seed(1)
+
+nasa.CVrf <- train(Hazardous ~ ., data=nasa,
+                   method="rf",
+                   trControl=trainControl(method="cv", number=10,
+                                          savePredictions=TRUE,
+                                          classProbs=TRUE))
+nasa.CVrf
+```
+
+3. Identify tuning parameters to be used, if appropriate.
+
+The final model selects an mtry tuning parameter value of 20 in order to maximize accuracy.
+
+4. Identify and interpret the effect of selected variables.
+
+```{r}
+varImp(nasa.CVrf)
+plot(varImp(nasa.CVrf))
+```
+
+5. Evaluate the cross-validated (CV) predictive performance.
+
+```{r}
+head(nasa.CVrf$pred)
+```
+
+```{r}
+pihatcv.rf <- nasa.CVrf$pred[nasa.CVrf$pred$mtry == 20,]
+predcv.rf <- prediction(pihatcv.rf$True, pihatcv.rf$obs)
+perfcv.rf <- performance(predcv.rf, "tpr", "fpr")
+plot(perfcv.rf)
+abline(a=0, b=1, lty=2)
+
+aucCV.rf <- performance(predcv.rf, "auc")@y.values 
+aucCV.rf
+```
+
+```{r}
+confMat <- table(pihatcv.rf$obs, pihatcv.rf$pred)
+confMat
+rf.stats <- get_stats(confMat)
+rf.stats
+```
