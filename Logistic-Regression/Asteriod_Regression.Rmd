@@ -1,0 +1,163 @@
+---
+title: "Asteriod_Regression"
+author: "Madeline Pfister"
+date: "2023-04-24"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+nasa <- read.csv("nasa.csv")
+nasa <- na.omit(nasa)
+```
+
+```{r}
+#check the assumptions of the lasso mode
+```
+
+
+```{r}
+library(glmnet)
+
+#create the design matrix
+X = model.matrix(Hazardous ~ ., data=nasa) 
+Y = as.numeric(nasa$Hazardous=="TRUE")
+
+#conduct the cross-validation
+set.seed(1)
+cvfit = cv.glmnet(x=X[,-1], y=Y, family="binomial", type.measure="auc")
+cvfit
+plot(cvfit)
+
+#Variables selected using lambda.1se
+sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)!=0)[-1]-1
+sel.names <- colnames(nasa)[sel.vars]
+sel.names
+```
+
+```{r}
+#fit a lasso model using the selected variables
+fit.lasso <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Jupiter.Tisserand.Invariant,
+                family="binomial", data=nasa)
+summary(fit.lasso)
+```
+
+```{r}
+#address the model assumptions of the lasso model -- multicollinearity
+library(car)
+vif(fit.lasso)
+```
+
+```{r}
+#adjust the model based on multicollinearlity issues
+#remove Absolute.Magnitude
+fit.lasso2 <- glm(as.factor(Hazardous) ~ Est.Dia.in.KM.min. + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Jupiter.Tisserand.Invariant,
+                family="binomial", data=nasa)
+summary(fit.lasso2)
+```
+
+```{r}
+#assess multicollinearity of the adjusted model
+vif(fit.lasso2)
+```
+
+```{r}
+#test the goodness of fit of the adjusted model
+library(ResourceSelection)
+hoslem.test(fit.lasso2$y, fit.lasso2$fitted.values)
+```
+
+```{r}
+#adjust the model based on multicollinearlity issues
+#remove Est.Dia.in.KM.min
+fit.lasso3 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Jupiter.Tisserand.Invariant,
+                family="binomial", data=nasa)
+summary(fit.lasso3)
+```
+
+```{r}
+#assess multicollinearity of the adjusted model
+vif(fit.lasso3)
+```
+
+```{r}
+#test the goodness of fit of the adjusted model
+hoslem.test(fit.lasso3$y, fit.lasso3$fitted.values)
+```
+
+Fit.lasso3 is the best fit of the lasso model
+
+```{r}
+#create the cross-validated model using the selected variables
+library(caret)
+set.seed(1)
+fit.cv <- train(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Jupiter.Tisserand.Invariant , 
+                   method = "glm", family = "binomial", trControl = trainControl(method="cv", number=5, 
+                                                savePredictions = TRUE),data=nasa)
+fit.cv
+
+#determine the final model
+summary(fit.cv$finalModel)
+```
+
+```{r}
+#asses the mullitcollinearity of the final model
+vif(fit.cv$finalModel)
+```
+
+```{r}
+#create a new cross-validated model removing Est.Dia.in.KM.min.
+fit.cv2 <- train(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Jupiter.Tisserand.Invariant , 
+                   method = "glm", family = "binomial", trControl = trainControl(method="cv", number=5, 
+                                                savePredictions = TRUE),data=nasa)
+fit.cv2
+
+#determine the final model
+summary(fit.cv2$finalModel)
+```
+
+```{r}
+#assess the multicollinearity of the adjusted cross-validated model
+vif(fit.cv2$finalModel)
+```
+
+```{r}
+#goodness of fit
+hoslem.test(fit.cv2$finalModel$y, fit.cv2$finalModel$fitted.values)
+```
+
+```{r}
+#assess the predictive performance using the optimized model
+pihat <- predict(fit.cv2, type="prob")
+head(cbind(nasa$Hazardous, pihat, predict(fit.cv2)))
+
+library(ROCR)
+pred <- prediction(pihat[,2], nasa$Hazardous)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf)
+
+auc <- performance(pred, "auc")@y.values
+auc
+```
+
+```{r}
+#assess the predictive performance using the predictive model
+pihatcv <- fit.cv2$pred
+head(cbind(nasa$Hazardous[pihatcv$rowIndex], pihatcv))
+
+predcv <- prediction(pihatcv$"TRUE", pihatcv$obs)
+perfcv <- performance(predcv, "tpr", "fpr")
+plot(perfcv)
+
+auccv <- performance(predcv, "auc")@y.values
+auccv
+```
