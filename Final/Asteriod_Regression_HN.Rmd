@@ -1,0 +1,233 @@
+---
+title: "Asteriod_Regression"
+author: "Madeline Pfister"
+date: "2023-04-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(mlbench)
+library(rattle) 
+library(randomForest)
+library(ROCR)
+```
+
+
+```{r}
+nasa <- read.csv("nasa_v2.csv")
+```
+
+
+```{r}
+library(glmnet)
+
+#create the design matrix
+X = model.matrix(Hazardous ~ ., data=nasa) 
+Y = as.numeric(nasa$Hazardous=="True")
+
+#conduct the cross-validation
+set.seed(1)
+cvfit = cv.glmnet(x=X[,-1], y=Y, family="binomial", type.measure="auc")
+cvfit
+plot(cvfit)
+
+#Variables selected using lambda.1se
+sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)!=0)[-1]-1
+sel.names <- colnames(nasa)[sel.vars]
+sel.names
+```
+
+```{r}
+#fit a lasso model using the selected variables
+fit.lasso <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Jupiter.Tisserand.Invariant,
+                family="binomial", data=nasa)
+summary(fit.lasso)
+```
+
+```{r}
+#address the model assumptions of the lasso model
+plot(fit.lasso)
+```
+
+Due to a large outlier (observation 695), none of the assumptions for regression are met.
+
+```{r}
+#removing the large outlier to satisfy model assumptions
+nasa2 <- nasa[-695,]
+
+#create the design matrix
+X2 = model.matrix(Hazardous ~ ., data=nasa2) 
+Y2 = as.numeric(nasa2$Hazardous=="True")
+
+#conduct the cross-validation
+set.seed(1)
+cvfit2 = cv.glmnet(x=X2[,-1], y=Y2, family="binomial", type.measure="auc")
+cvfit2
+plot(cvfit2)
+
+#Variables selected using lambda.1se
+sel.vars2 <- which(coef(cvfit2, s=cvfit2$lambda.1se)!=0)[-1]-1
+sel.names2 <- colnames(nasa2)[sel.vars2]
+sel.names2
+```
+
+```{r}
+#create a new model
+fit.lasso2 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. + 
+                    Orbit.Uncertainity + Minimum.Orbit.Intersection + Mean.Motion,
+                family="binomial", data=nasa2)
+summary(fit.lasso2)
+```
+
+```{r}
+#assess model assumptions
+plot(fit.lasso2)
+```
+
+Based on visual analysis, the model assumptions appear to be satisfied?
+
+```{r}
+#assess model assumptions -- multicollinearity
+library(car)
+vif(fit.lasso2)
+```
+
+There are multicollinearity with Absolute.Magnitude and Est.Dia.in.KM.min. as they both have a vif > 5.
+
+```{r}
+#create a new model removing Absolute.Magnitude as it has the largest VIF
+fit.lasso3 <- glm(as.factor(Hazardous) ~ Est.Dia.in.KM.min. + Orbit.Uncertainity +
+              Minimum.Orbit.Intersection + Mean.Motion,family="binomial", data=nasa2)
+summary(fit.lasso3)
+```
+
+```{r}
+#test the multicollinearity of the adjusted model
+vif(fit.lasso3)
+```
+
+There are no multicollinearity issues in the adjusted model.
+
+\begin{center}
+$H_{0}$: the data fits the model well
+
+$H_{1}$: the data does not fit the model well
+
+$\alpha = 0.05$
+\end{center}
+
+```{r}
+#test the goodness of fit of the model
+library(ResourceSelection)
+hoslem.test(fit.lasso3$y, fit.lasso3$fitted.values)
+```
+
+There is statistically sufficient evidence (p = 0.3043, df = 8) to reject the null hypothesis and conclude that the model fits the data well.
+
+```{r}
+#create a new model keeping Absolute.Magnitude and removing Est.Dia.in.KM.min
+fit.lasso4 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity +
+              Minimum.Orbit.Intersection + Mean.Motion,family="binomial", data=nasa2)
+summary(fit.lasso4)
+```
+
+```{r}
+#test the multicollinearity of the adjusted model
+vif(fit.lasso4)
+```
+
+There are no multicollinearity issues in the adjusted model.
+
+\begin{center}
+$H_{0}$: the data fits the model well
+
+$H_{1}$: the data does not fit the model well
+
+$\alpha = 0.05$
+\end{center}
+
+```{r}
+#test the goodness of fit of the model
+library(ResourceSelection)
+hoslem.test(fit.lasso4$y, fit.lasso4$fitted.values)
+```
+
+There is statistically sufficient evidence (p = 0.5284, df = 8) to reject the null hypothesis and conclude that the model fits the data well.
+
+fit.lasso4 is the best fit for the data as it has the highest p-value in the Hosmer and Lemeshow goodness of fit test.
+
+```{r}
+#create the cross-validated model the best fitting lasso model
+library(caret)
+set.seed(1)
+fit.cv <- train(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Mean.Motion , 
+                   method = "glm", family = "binomial", trControl = trainControl(method="cv", number=5, 
+                                                savePredictions = TRUE, classProbs = TRUE),data=nasa2)
+fit.cv
+
+#determine the final model
+summary(fit.cv$finalModel)
+```
+
+```{r}
+#verify the multicollinearity
+vif(fit.cv$finalModel)
+```
+
+```{r}
+#verify the goodness of fit
+hoslem.test(fit.cv$finalModel$y, fit.cv$finalModel$fitted.values)
+```
+
+```{r}
+#assess the predictive performance using the predictive model
+pihatcv <- fit.cv$pred
+head(cbind(nasa$Hazardous[pihatcv$rowIndex], pihatcv))
+
+predcv <- prediction(pihatcv$"True", pihatcv$obs)
+perfcv <- performance(predcv, "tpr", "fpr")
+plot(perfcv)
+
+auccv <- performance(predcv, "auc")@y.values
+auccv
+```
+
+```{r}
+get_stats <- function(CM) {
+  TP <- CM[2,2]
+  FP <- CM[1,2]
+  TN <- CM[1,1]
+  FN <- CM[2,1]
+  
+  acc <- (TP+TN) / (TP+TN+FN+FP)
+  err <- (FP+FN) / (TP+TN+FN+FP)
+  pre <- (TP) / (TP+FP)
+  sen <- (TP) / (TP+FN)
+  spe <- (TN) / (TN+FP)
+  fme <- (2*pre*sen) / (pre+sen)
+  mcc_denom <- sqrt(TP+FP)*sqrt(TP+FN)*sqrt(TN+FP)*sqrt(TN+FN)
+  mcc <- (TP*TN - FP*FN) / mcc_denom
+  
+  name <- c("accuracy", "error rate", "precision", "sensitivity", "specificity", "F-measure", "Matthew's CC")
+  value <- c(acc, err, pre, sen, spe, fme, mcc)
+  stats <- data.frame(name, value)
+  
+  return (stats)
+}
+```
+
+
+```{r}
+#evaluate Matthew's Correlation Coefficient using Hannah's stats equation
+confMat <- table(pihatcv$obs, pihatcv$pred)
+confMat
+rf.stats <- get_stats(confMat)
+rf.stats
+```
