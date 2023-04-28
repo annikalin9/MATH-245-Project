@@ -76,11 +76,6 @@ fit.lasso2 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min.
 summary(fit.lasso2)
 ```
 
-```{r}
-#assess model assumptions
-plot(fit.lasso2)
-```
-
 Based on visual analysis, the model assumptions appear to be satisfied?
 
 ```{r}
@@ -188,6 +183,30 @@ plot(perfcv)
 
 auccv <- performance(predcv, "auc")@y.values
 auccv
+```
+
+```{r}
+get_stats <- function(CM) {
+  TP <- CM[2,2]
+  FP <- CM[1,2]
+  TN <- CM[1,1]
+  FN <- CM[2,1]
+  
+  acc <- (TP+TN) / (TP+TN+FN+FP)
+  err <- (FP+FN) / (TP+TN+FN+FP)
+  pre <- (TP) / (TP+FP)
+  sen <- (TP) / (TP+FN)
+  spe <- (TN) / (TN+FP)
+  fme <- (2*pre*sen) / (pre+sen)
+  mcc_denom <- sqrt(TP+FP)*sqrt(TP+FN)*sqrt(TN+FP)*sqrt(TN+FN)
+  mcc <- (TP*TN - FP*FN) / mcc_denom
+  
+  name <- c("accuracy", "error rate", "precision", "sensitivity", "specificity", "F-measure", "Matthew's CC")
+  value <- c(acc, err, pre, sen, spe, fme, mcc)
+  stats <- data.frame(name, value)
+  
+  return (stats)
+}
 ```
 
 ```{r}
