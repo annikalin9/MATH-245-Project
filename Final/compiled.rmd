@@ -491,8 +491,14 @@ rpart.stats
 rf.stats
 
 df_merge <- merge(lasso.stats,knn.stats,by="name")
+colnames(df_merge)[colnames(df_merge) == "value.x"] ="Lasso"
+colnames(df_merge)[colnames(df_merge) == "value.y"] ="kNN"
+
 df_merge <- merge(df_merge,rpart.stats,by="name")
 df_merge <- merge(df_merge,rf.stats,by="name")
+colnames(df_merge)[colnames(df_merge) == "value.x"] ="Classification Tree"
+colnames(df_merge)[colnames(df_merge) == "value.y"] ="Random Forest"
+
 df_merge
 ```
 
