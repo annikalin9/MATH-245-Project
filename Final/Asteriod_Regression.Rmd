@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-nasa <- read.csv("nasa.csv")
+nasa_outlier <- read.csv("nasa_outlier.csv")
 ```
 
 
@@ -18,7 +18,7 @@ nasa <- read.csv("nasa.csv")
 library(glmnet)
 
 #create the design matrix
-X = model.matrix(Hazardous ~ ., data=nasa) 
+X = model.matrix(Hazardous ~ ., data=nasa_outlier) 
 Y = as.numeric(nasa$Hazardous=="True")
 
 #conduct the cross-validation
@@ -29,7 +29,7 @@ plot(cvfit)
 
 #Variables selected using lambda.1se
 sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)!=0)[-1]-1
-sel.names <- colnames(nasa)[sel.vars]
+sel.names <- colnames(nasa_outlier)[sel.vars]
 sel.names
 ```
 
@@ -41,20 +41,15 @@ fit.lasso <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. 
 summary(fit.lasso)
 ```
 
-```{r}
-#address the model assumptions of the lasso model
-plot(fit.lasso)
-```
-
-Due to a large outlier (observation 695), none of the assumptions for regression are met.
+Due to a large outlier (observation 695), none of the assumptions for regression are met. Therefore, we remove line 695 and begin the analysis again.
 
 ```{r}
 #removing the large outlier to satisfy model assumptions
-nasa2 <- nasa[-695,]
+nasa <- nasa[-695,]
 
 #create the design matrix
-X2 = model.matrix(Hazardous ~ ., data=nasa2) 
-Y2 = as.numeric(nasa2$Hazardous=="True")
+X2 = model.matrix(Hazardous ~ ., data=nasa) 
+Y2 = as.numeric(nasa$Hazardous=="True")
 
 #conduct the cross-validation
 set.seed(1)
@@ -64,7 +59,7 @@ plot(cvfit2)
 
 #Variables selected using lambda.1se
 sel.vars2 <- which(coef(cvfit2, s=cvfit2$lambda.1se)!=0)[-1]-1
-sel.names2 <- colnames(nasa2)[sel.vars2]
+sel.names2 <- colnames(nasa)[sel.vars2]
 sel.names2
 ```
 
@@ -72,11 +67,9 @@ sel.names2
 #create a new model
 fit.lasso2 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. + 
                     Orbit.Uncertainity + Minimum.Orbit.Intersection + Mean.Motion,
-                family="binomial", data=nasa2)
+                family="binomial", data=nasa)
 summary(fit.lasso2)
 ```
-
-Based on visual analysis, the model assumptions appear to be satisfied?
 
 ```{r}
 #assess model assumptions -- multicollinearity
@@ -89,7 +82,7 @@ There are multicollinearity with Absolute.Magnitude and Est.Dia.in.KM.min. as th
 ```{r}
 #create a new model removing Absolute.Magnitude as it has the largest VIF
 fit.lasso3 <- glm(as.factor(Hazardous) ~ Est.Dia.in.KM.min. + Orbit.Uncertainity +
-              Minimum.Orbit.Intersection + Mean.Motion,family="binomial", data=nasa2)
+              Minimum.Orbit.Intersection + Mean.Motion,family="binomial", data=nasa)
 summary(fit.lasso3)
 ```
 
@@ -119,7 +112,7 @@ There is statistically sufficient evidence (p = 0.3043, df = 8) to reject the nu
 ```{r}
 #create a new model keeping Absolute.Magnitude and removing Est.Dia.in.KM.min
 fit.lasso4 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity +
-              Minimum.Orbit.Intersection + Mean.Motion,family="binomial", data=nasa2)
+              Minimum.Orbit.Intersection + Mean.Motion,family="binomial", data=nasa)
 summary(fit.lasso4)
 ```
 
@@ -155,7 +148,7 @@ set.seed(1)
 fit.cv <- train(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity + 
                    Minimum.Orbit.Intersection + Mean.Motion , 
                    method = "glm", family = "binomial", trControl = trainControl(method="cv", number=5, 
-                                                savePredictions = TRUE, classProbs = TRUE),data=nasa2)
+                                                savePredictions = TRUE, classProbs = TRUE),data=nasa)
 fit.cv
 
 #determine the final model
