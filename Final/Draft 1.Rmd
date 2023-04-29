@@ -1,0 +1,476 @@
+---
+title: "Asteriod Data Analysis (working title)"
+author: "Annika Lin, Hannah Norman, and Madeline Pfister"
+date: "2023-05-02"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages and Functions
+
+```{r}
+library(caret)
+library(mlbench)
+library(rattle) 
+library(randomForest)
+library(ROCR)
+library(glmnet)
+library(car)
+library(ResourceSelection)
+```
+
+## Predictive Performance Stats
+
+We created a function in which the output is a table summarizing all of the predictive performance stats. This function was used throughtout the analysis.
+```{r}
+get_stats <- function(CM) {
+  TP <- CM[2,2]
+  FP <- CM[1,2]
+  TN <- CM[1,1]
+  FN <- CM[2,1]
+  
+  acc <- (TP+TN) / (TP+TN+FN+FP)
+  err <- (FP+FN) / (TP+TN+FN+FP)
+  pre <- (TP) / (TP+FP)
+  sen <- (TP) / (TP+FN)
+  spe <- (TN) / (TN+FP)
+  fme <- (2*pre*sen) / (pre+sen)
+  mcc_denom <- sqrt(TP+FP)*sqrt(TP+FN)*sqrt(TN+FP)*sqrt(TN+FN)
+  mcc <- (TP*TN - FP*FN) / mcc_denom
+  
+  name <- c("accuracy", "error rate", "precision", "sensitivity", "specificity", 
+            "F-measure", "Matthew's CC")
+  value <- c(acc, err, pre, sen, spe, fme, mcc)
+  stats <- data.frame(name, value)
+  
+  return (stats)
+}
+```
+
+# Data Cleaning and Initital Analysis
+
+We began by choosing one date to focus on for our data set. The data we chose was April 6, 2017, so we filtered our data to only include observations from that date. 
+
+```{r}
+#import dataset filtered for '2017-04-06'
+nasa <- read.csv("nasa.csv")
+```
+
+## Analysis of Predictors
+
+We did a simple numerical summary and box plots to determine if there are any large outliers in the data set.
+```{r}
+# numerical summary + box plots
+summary(nasa)
+par(mfrow=c(2,4))
+boxplot(nasa$Est.Dia.in.KM.range, main="Est.Dia.in.KM.range")
+boxplot(nasa$Relative.Velocity, main="Relative.Velocity")
+boxplot(nasa$Minimum.Orbit.Intersection, main="Minimum.Orbit.Intersection")
+boxplot(nasa$Inclination, main="Inclination")
+boxplot(nasa$Orbital.Period, main="Orbital.Period")
+boxplot(nasa$Aphelion.Dist, main="Aphelion.Dist")
+boxplot(nasa$Mean.Motion, main="Mean.Motion")
+# to find row number of outlier observations
+nasa[which.max(nasa$Est.Dia.in.KM.range),]
+```
+
+Oberservation 695 was a very large outlier. We decided to remove it from the data, so it did not skew our model results. 
+
+```{r}
+#remove outlier
+nasa <- nasa[-695,]
+```
+
+## Create a Proportion Table
+
+We wanted to create a proportion table to get an understanding of how many asteriods were classified as hazardous and how many were classified as non-hazardous before beginning our analysis.
+```{r}
+prop.hazardous <- prop.table(table(nasa$Hazardous))
+prop.hazardous
+```
+
+We found that the majority of our asteriods (85.9%) were classified as non-hazardous. All of our observations were classified as either hazardous or non-hazardous. This is also shown by the visulaizations below.
+```{r}
+par(mfrow=c(1,2))
+# pie chart
+count.hazardous <- table(nasa$Hazardous)
+lbls <- paste(levels(as.factor(nasa$Hazardous)), ": ",
+              round(prop.hazardous,3)*100, "%", sep="")
+pie(count.hazardous, labels=lbls, col=c("salmon", "palegreen"))
+# bar plot
+barplot(prop.hazardous, xlab="Hazardous", ylab="Proportion", ylim=c(0, 1.0),
+        col=c("salmon", "palegreen"))
+```
+
+# Data Analysis
+## Lasso’s Penalized Regression
+
+Create the design matrix.
+```{r}
+X = model.matrix(Hazardous ~ ., data=nasa)
+Y = as.numeric(nasa$Hazardous=="True")
+```
+
+Conduct the cross-validation.
+```{r}
+set.seed(1)
+cvfit = cv.glmnet(x=X[,-1], y=Y, family="binomial", type.measure="auc")
+cvfit
+plot(cvfit)
+```
+
+Determine which variables were selected using lambda.1se. These are the variables with which the lasso models will be built.
+```{r}
+sel.vars <- which(coef(cvfit, s=cvfit$lambda.1se)!=0)[-1]-1
+sel.names <- colnames(nasa)[sel.vars]
+sel.names
+```
+
+We built our initial lasso model using the variables selected.
+```{r}
+#fit a lasso model using the selected variables
+fit.lasso <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Est.Dia.in.KM.min. +
+                   Orbit.Uncertainity + Minimum.Orbit.Intersection + 
+                   Mean.Motion, family="binomial", data=nasa)
+summary(fit.lasso)
+```
+
+The model assumptions for independence, normaility, and no influential points are satisfied by the data. However, we also need to check for multicollinearity to ensure that all model assumptions are satisfied.
+```{r}
+#address the model assumptions of the lasso model -- multicollinearity
+vif(fit.lasso)
+```
+
+Both Absoulte.Magnitude and Est.Dia.in.KM.min. have a VIF>5 indicating multicollinearity. We dedcided to intially adjust our model by removing Abosulte.Magnitude as it has a larger VIF.
+```{r}
+#adjust the model based on multicollinearlity issues
+#remove Absolute.Magnitude
+fit.lasso2 <- glm(as.factor(Hazardous) ~ Est.Dia.in.KM.min. + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Mean.Motion,
+                family="binomial", data=nasa)
+summary(fit.lasso2)
+```
+
+```{r}
+#assess multicollinearity of the adjusted model
+vif(fit.lasso2)
+```
+
+Removing Absolute.Magnitude fixed the multicollinearity issues. All assumptions are satisfied for the adjusted model. We then tested how well the model fit the data using the Hosmer and Lemeshow goodness of fit test.
+
+\begin{center}
+$H_{0}$: the model fits the data well
+
+$H_{1}$: the model does not fit the data well
+
+$\alpha = 0.05$
+\end{center}
+
+```{r}
+#test the goodness of fit of the adjusted model
+hoslem.test(fit.lasso2$y, fit.lasso2$fitted.values)
+```
+
+There is statistically sufficent evidence (p = 0.436, df = 8) to conclude that the model fits the data well.
+
+We then replaced Est.Dia.in.KM.min. with Absoulte.Magnitude (adjuting for multicollinearity) to see if this model would be a better fit for the data.
+```{r}
+#adjust the model based on multicollinearlity issues
+#remove Est.Dia.in.KM.min
+fit.lasso3 <- glm(as.factor(Hazardous) ~ Absolute.Magnitude + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Mean.Motion,
+                family="binomial", data=nasa)
+summary(fit.lasso3)
+```
+
+```{r}
+#assess multicollinearity of the adjusted model
+vif(fit.lasso3)
+```
+
+There are no multicollinearity issues in the adjusted model.
+
+Hosmer and Lemeshow goodness of fit test:
+
+\begin{center}
+$H_{0}$: the model fits the data well
+
+$H_{1}$: the model does not fit the data well
+
+$\alpha = 0.05$
+\end{center}
+
+```{r}
+#test the goodness of fit of the adjusted model
+hoslem.test(fit.lasso3$y, fit.lasso3$fitted.values)
+```
+
+There is statistically sufficient evidence (p = 0.5285, df = 8) to conclude that the model fits the data well.
+
+Fit.lasso3 is the best fit of the lasso model as the Hosmer and Lemeshow goodness of fit (GOF) test results in a higher p-value for fit.lasso3 than fit.lasso2. This is the model in which we base the cross-validated predicition off of.
+```{r}
+#create the cross-validated model using the selected variables
+set.seed(1)
+fit.cv <- train(as.factor(Hazardous) ~ Est.Dia.in.KM.min. + Orbit.Uncertainity + 
+                   Minimum.Orbit.Intersection + Mean.Motion , 
+                   method = "glm", family = "binomial", 
+                   trControl = trainControl(method="cv", number=5, 
+                   savePredictions = TRUE, classProbs = TRUE),data=nasa)
+fit.cv
+#determine the final model
+summary(fit.cv$finalModel)
+```
+
+Verify that there are no multicollinearity issues in the final model and that the model fits the data well.
+```{r}
+#asess the mulitcollinearity of the final model
+vif(fit.cv$finalModel)
+```
+
+\begin{center}
+$H_{0}$: the model fits the data well
+
+$H_{1}$: the model does not fit the data well
+
+$\alpha = 0.05$
+\end{center}
+```{r}
+#goodness of fit
+hoslem.test(fit.cv$finalModel$y, fit.cv$finalModel$fitted.values)
+```
+
+We then assessed the predictive performance of the model by plotting the ROC curve and finding the area under the curve.
+```{r}
+#plot the ROC curve
+pihatcv <- fit.cv$pred
+predcv <- prediction(pihatcv$True, pihatcv$obs)
+perfcv <- performance(predcv, "tpr", "fpr")
+plot(perfcv)
+#find the area under the ROC curve
+auccv <- performance(predcv, "auc")@y.values
+auccv
+```
+
+Analyze the data analysis by creating a confusion matrix and generating performance statistics.
+```{r}
+confusionMatrix(pihatcv$pred, pihatcv$obs, positive="True") 
+# Confusion matrix
+conf.lasso <- table(pihatcv$pred, pihatcv$obs) 
+conf.lasso
+```
+
+```{r}
+lasso.stats <- get_stats(conf.lasso)
+lasso.stats 
+```
+
+## k-Nearest Neighbor
+
+The KNN makes no assumptions and has relatively few parameters to specify (k and a distance measure). We normalized our data before performing the analysis.
+```{r}
+# function to normalize data
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x))) }
+arr.norm <- apply(nasa[,-21], 2, normalize)
+arr.norm <- data.frame(arr.norm, nasa$Hazardous)
+colnames(arr.norm)[colnames(arr.norm) == "nasa.Hazardous"] ="Hazardous"
+```
+
+We used the 5-fold cross validated model to choose k, and we found that 5 neighbors are used in the final model.
+```{r}
+# 5-fold CV to choose k
+set.seed(1)
+arr.norm$Hazardous <- as.factor(arr.norm$Hazardous)
+fit.knn <- train(Hazardous ~ .,
+  method = "knn",
+  tuneGrid = expand.grid(k = 1:21),
+  trControl = trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE),
+  metric = "Accuracy",
+  data = arr.norm)
+fit.knn
+```
+
+The 10 most important variables in the k-Nearest neighbor models we built are:
+```{r}
+imp.knn <- rownames(varImp(fit.knn)$importance)
+sel.knn <- imp.knn[order(varImp(fit.knn)$importance[,1], decreasing=T)][1:10] 
+sel.knn
+```
+
+We then assessed the predictive performance of the model by plotting the ROC curve and finding the area under the curve, plotting the error rate, and plotting the most important variables.
+```{r}
+#plot the ROC curve
+pihatcv.knn <- fit.knn$pred[fit.knn$pred$k == 5,]
+pred <- prediction(pihatcv.knn$True, pihatcv.knn$obs)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf)
+# Area under ROC curve (AUC) = concordance index
+auc.perf = performance(pred, "auc")
+knn_auc <- auc.perf@y.values
+knn_auc
+```
+
+```{r}
+plot(fit.knn$results[,1], 1-fit.knn$results[,2], type="l",
+xlab="k, number of neighbors", ylab="error rate")
+```
+
+```{r}
+plot(varImp(fit.knn), main="kNN variable importance")
+varImp(fit.knn)
+```
+
+Analyze the data by creating a confusion matrix and generating performance statistics.
+```{r}
+confusionMatrix(pihatcv.knn$pred, pihatcv.knn$obs, positive="True")
+# Confusion matrix
+conf.knn <- table(pihatcv.knn$pred, pihatcv.knn$obs) 
+conf.knn
+```
+
+```{r}
+knn.stats <- get_stats(conf.knn)
+knn.stats 
+```
+
+## Classification Tree Analysis
+
+There are no model assumptions to be satisfied for decision trees. We are fitting a classification tree as opposed to a regression tree because the response variable is categorical and binary.
+```{r}
+set.seed(1)
+# rpart
+nasa.CVrpart <- train(Hazardous ~ ., data=nasa,
+                      method="rpart",
+                      tuneGrid = expand.grid(cp=seq(0.005, 0.05, length=10)),
+                      trControl=trainControl(method="cv", number=5,
+                                             savePredictions=TRUE,
+                                             classProbs=TRUE,
+                                             selectionFunction = "oneSE"))
+nasa.CVrpart
+# print tree
+fancyRpartPlot(nasa.CVrpart$finalModel)
+```
+
+If the plain rpart method is utilized, it selects a cp (complexity parameter) value of 0.05 to maximize accuracy for the final model. Note that the accuracy and kappa values are identical for each of the cp values tried by the model, so any choice within that range should produce comparable results.
+
+The 10 most important variables in the model are:
+```{r}
+# variable importance
+varImp(nasa.CVrpart)
+plot(varImp(nasa.CVrpart))
+```
+
+We then assessed the predictive performance by plotting the ROC curve and finding the area under the curve.
+```{r}
+head(nasa.CVrpart$pred)
+```
+
+```{r}
+pihatcv.rpart <- nasa.CVrpart$pred[nasa.CVrpart$pred$cp == 0.05,]
+predcv.rpart <- prediction(pihatcv.rpart$True, pihatcv.rpart$obs)
+perfcv.rpart <- performance(predcv.rpart, "tpr", "fpr")
+plot(perfcv.rpart)
+abline(a=0, b=1, lty=2)
+aucCV.rpart <- performance(predcv.rpart, "auc")@y.values 
+aucCV.rpart
+```
+
+Analyze the data by creating a confusion matrix and generating performance statistics.
+```{r}
+confMat <- table(pihatcv.rpart$obs, pihatcv.rpart$pred)
+confMat
+rpart.stats <- get_stats(confMat)
+rpart.stats
+```
+
+## Random Forest Analysis
+
+There are no model assumptions to be satisfied for random forest analysis.
+```{r}
+set.seed(1)
+nasa.rf <- randomForest(as.factor(Hazardous) ~ ., data=nasa)
+nasa.rf
+```
+
+```{r}
+set.seed(1)
+nasa.CVrf <- train(Hazardous ~ ., data=nasa,
+                   method="rf",
+                   trControl=trainControl(method="cv", number=5,
+                                          savePredictions=TRUE,
+                                          classProbs=TRUE))
+nasa.CVrf
+```
+
+The final model selects an mtry tuning parameter value of 20 in order to maximize accuracy.
+
+The 10 most important variables is the random forest model are:
+```{r}
+varImp(nasa.CVrf)
+plot(varImp(nasa.CVrf))
+```
+
+We then assessed the model predictive performance by plotting the ROC curve and finding the model under the curve.
+```{r}
+head(nasa.CVrf$pred)
+```
+
+```{r}
+pihatcv.rf <- nasa.CVrf$pred[nasa.CVrf$pred$mtry == 20,]
+predcv.rf <- prediction(pihatcv.rf$True, pihatcv.rf$obs)
+perfcv.rf <- performance(predcv.rf, "tpr", "fpr")
+plot(perfcv.rf)
+abline(a=0, b=1, lty=2)
+aucCV.rf <- performance(predcv.rf, "auc")@y.values 
+aucCV.rf
+```
+
+Analyze the data by creating a confusion matrix and generating performance statistics.
+```{r}
+confMat <- table(pihatcv.rf$obs, pihatcv.rf$pred)
+confMat
+rf.stats <- get_stats(confMat)
+rf.stats
+```
+
+## Model Comparisons
+
+### Variable Importance Comparison
+```{r}
+par(mfrow=c(2,2))
+plot(varImp(fit.cv), top=10)
+plot(varImp(fit.knn), top=10)
+plot(varImp(nasa.CVrpart), top=10)
+plot(varImp(nasa.CVrf), top=10)
+```
+
+```{r}
+imp.knn <- rownames(varImp(fit.knn)$importance)
+sel.knn <- imp.knn[order(varImp(fit.knn)$importance[,1], decreasing=T)][1:10]
+imp.rp <- rownames(varImp(nasa.CVrpart)$importance)
+sel.rp <- imp.rp[order(varImp(nasa.CVrpart)$importance[,1], decreasing=T)][1:10]
+imp.rf <- rownames(varImp(nasa.CVrf)$importance)
+sel.rf <- imp.rf[order(varImp(nasa.CVrf)$importance[,1], decreasing=T)][1:10]
+intersect(sel.names, intersect(sel.knn, intersect(sel.rp, sel.rf)))
+```
+
+### Predicitive Performance Stat Comparison
+```{r}
+lasso.stats 
+knn.stats 
+rpart.stats
+rf.stats
+df_merge <- merge(lasso.stats,knn.stats,by="name")
+colnames(df_merge)[colnames(df_merge) == "value.x"] ="Lasso"
+colnames(df_merge)[colnames(df_merge) == "value.y"] ="kNN"
+df_merge <- merge(df_merge,rpart.stats,by="name")
+df_merge <- merge(df_merge,rf.stats,by="name")
+colnames(df_merge)[colnames(df_merge) == "value.x"] ="Classification Tree"
+colnames(df_merge)[colnames(df_merge) == "value.y"] ="Random Forest"
+df_merge
+```
+
+
+
